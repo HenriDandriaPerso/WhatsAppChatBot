@@ -14,6 +14,13 @@ python-multipart = "^0.0.17"
 gunicorn = "^23.0.0"
 twilio = "^9.3.7"
 langgraph = "^0.2.53"
+langchain-community = "^0.3.8"
+tiktoken = "^0.8.0"
+langchain-openai = "^0.2.9"
+langchainhub = "^0.1.21"
+chromadb = "^0.5.20"
+langchain-text-splitters = "^0.3.2"
+b64 = "^0.4"
 
 
 [build-system]
