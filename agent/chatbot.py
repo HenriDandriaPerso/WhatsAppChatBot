@@ -1,23 +1,17 @@
-from langchain.tools.retriever import create_retriever_tool
-from langchain_core.messages import ToolMessage
 from langgraph.prebuilt import tools_condition
-from BasicToolNode import BasicToolNode
+from agent.tool.BasicToolNode import BasicToolNode
 from typing_extensions import TypedDict
 from typing import Annotated
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
-from tool.retriever_tool import create_retriever_tools_from_urls
+from langgraph.graph.state import CompiledStateGraph
+from agent.tool.retriever_tool import create_retriever_tools_from_urls
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import MemorySaver
-
-
-
+from agent.prompt.systemPrompt import SYSTEM_PROMPT
 
 
 class State(TypedDict):
-    # Messages have the type "list". The `add_messages` function
-    # in the annotation defines how this state key should be updated
-    # (in this case, it appends messages to the list, rather than overwriting them)
     messages: Annotated[list, add_messages]
 
 
@@ -33,18 +27,42 @@ def chatbot(state:State):
     llm = ChatOpenAI(model="gpt-4o", temperature=0, streaming=True)
     return {"messages": [llm.invoke(state["messages"])]}
 
-retriever_tool = create_retriever_tools_from_urls(urls)
-tool_node = BasicToolNode(tools=[retriever_tool])
-graph_builder = StateGraph(State)
-graph_builder.add_node("tools", tool_node)
-graph_builder.add_node("chatbot", chatbot)  
+def compile_chatbot_graph() -> StateGraph:
+    retriever_tool = create_retriever_tools_from_urls(urls)
+    tool_node = BasicToolNode(tools=[retriever_tool])
+    graph_builder = StateGraph(State)
+    graph_builder.add_node("tools", tool_node)
+    graph_builder.add_node("chatbot", chatbot)  
 
-graph_builder.add_conditional_edges(
-    "chatbot",
-    tools_condition,
-    {"tools": "tools", END: END},
-)
-graph_builder.add_edge("tools", "chatbot")
-graph_builder.add_edge(START, "chatbot")
-graph = graph_builder.compile()
+    graph_builder.add_conditional_edges(
+        "chatbot",
+        tools_condition,
+        {"tools": "tools", END: END},
+    )
+    graph_builder.add_edge("tools", "chatbot")
+    graph_builder.add_edge(START, "chatbot")
+    return graph_builder
+
+def get_answer_from_chat(graph: CompiledStateGraph, from_number: str, to_number_str: str, message: str) -> str:
+    # config = {"configurable": {"thread_id": from_number + "_" + to_number_str}}
+    config = {"configurable": {"thread_id": from_number + "_" + to_number_str}}
+    previous_value = graph.get_state(config).values
+    if previous_value == {}:  # if the thread is new, add the initial state
+        graph.update_state(config, {"messages": [
+            ("system", SYSTEM_PROMPT)
+        ]})
+
+    events = graph.stream(
+        {"messages": [("user", message)]}, config, stream_mode="values"
+    )
+    for event in events:
+        event["messages"][-1].pretty_print()
+
+    return event["messages"][-1].content
+    
+
+
+
+
+
 

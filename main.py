@@ -9,6 +9,14 @@ from pprint import pprint
 from datetime import datetime
 from pathlib import Path
 import json
+from langgraph.checkpoint.memory import MemorySaver
+
+
+from agent.chatbot import get_answer_from_chat, compile_chatbot_graph
+
+graph = compile_chatbot_graph()
+memory = MemorySaver()
+graph = graph.compile(checkpointer=memory)
 
 
 TWILIO_NUMBER = "whatsapp:+14155238886"
@@ -84,7 +92,9 @@ async def receive_message(request: Request):
         raise HTTPException(status_code=400, detail="Invalid incoming data")
 
     # Process the question received from WhatsApp
-    response_message = process_question(body)
+    response_message = get_answer_from_chat(graph, 
+                            from_number=from_number,
+                            to_number_str=TWILIO_NUMBER, message=body)
 
     # Add response to history
     add_to_history(from_number, {"from": "bot", "body": response_message, "timestamp": str(datetime.now())})
@@ -93,16 +103,6 @@ async def receive_message(request: Request):
     twiml.message(response_message)
 
     return PlainTextResponse(str(twiml), media_type="application/xml")
-
-
-def process_question(question: str) -> str:
-    # Placeholder for question processing logic.
-    # This could include querying a database, ML model inference, etc.
-    if question.lower() == "hello":
-        return "Hi there! How can I help you today?"
-    else:
-        return "I'm not sure how to answer that yet, but I'm learning! Your question was: " + question
-    
 
 def send_message(to_number: str, message: str):
     client.messages.create(
