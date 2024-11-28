@@ -1,28 +1,27 @@
-from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import PlainTextResponse
-from twilio.twiml.messaging_response import MessagingResponse
-from twilio.rest import Client
+import json
 import os
-from twilio.request_validator import RequestValidator
-from fastapi.middleware.cors import CORSMiddleware
-from pprint import pprint
 from datetime import datetime
 from pathlib import Path
-import json
+from pprint import pprint
+
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import PlainTextResponse
 from langgraph.checkpoint.memory import MemorySaver
+from twilio.request_validator import RequestValidator
+from twilio.rest import Client
+from twilio.twiml.messaging_response import MessagingResponse
 
-
-from agent.chatbot import get_answer_from_chat, compile_chatbot_graph
+from agent.chatbot import compile_chatbot_graph, get_answer_from_chat
 
 graph = compile_chatbot_graph()
 memory = MemorySaver()
-graph = graph.compile(checkpointer=memory)
+graph_compiled = graph.compile(checkpointer=memory)
 
 
 TWILIO_NUMBER = "whatsapp:+14155238886"
 DATA_STORAGE = Path("data")
 DATA_STORAGE.mkdir(exist_ok=True)
-
 account_sid = os.getenv("TWILIO_ACCOUNT_SID")
 auth_token = os.getenv("TWILIO_AUTH_TOKEN")
 
@@ -39,23 +38,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-def add_to_history(from_number: str, data: dict):
-    from_number = from_number.replace("+", "")
-    from_number = from_number.replace(":", "")
-    
-
-    print((str(from_number) + ".json"))
-    json_path = DATA_STORAGE / (str(from_number) + ".json")
-    if json_path.exists():
-        with open(json_path, "r") as f:
-            history = json.load(f)
-    else:
-        history = []
-
-    history.append(data)
-    with open(json_path, "w") as f:
-        json.dump(history, f, indent=4)
 
 
 async def validate_twilio_request(request: Request) -> bool:
@@ -78,36 +60,18 @@ async def receive_message(request: Request):
     form_data = await request.form()
     from_number = str(form_data.get('From'))
     body: str = form_data.get('Body') # type: ignore
-    data = dict(form_data)
-    pprint(data)
-
-    print("from_number", from_number)
-
-    add_to_history(str(from_number), data)
-        
-
-    
 
     if not from_number or not body:
         raise HTTPException(status_code=400, detail="Invalid incoming data")
 
     # Process the question received from WhatsApp
-    response_message = get_answer_from_chat(graph, 
+    response_message = get_answer_from_chat(graph_compiled, 
                             from_number=from_number,
                             to_number_str=TWILIO_NUMBER, message=body)
 
-    # Add response to history
-    add_to_history(from_number, {"from": "bot", "body": response_message, "timestamp": str(datetime.now())})
     # Create response
     twiml = MessagingResponse()
     twiml.message(response_message)
 
     return PlainTextResponse(str(twiml), media_type="application/xml")
 
-def send_message(to_number: str, message: str):
-    client.messages.create(
-        body=message,
-        from_='whatsapp:+14155238886',  # Replace with your Twilio WhatsApp number
-        to=to_number
-    )
-    add_to_history(to_number, {"from": "bot", "body": message, "timestamp": str(datetime.now())})
